@@ -7,10 +7,9 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/mickamy/pointless/internal/analyzer"
+	"github.com/mickamy/pointless/internal/config"
 	"golang.org/x/tools/go/analysis/singlechecker"
-
-	"github.com/mickamy/pointless/analyzer"
-	"github.com/mickamy/pointless/config"
 )
 
 func main() {
