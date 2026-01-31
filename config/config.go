@@ -36,7 +36,7 @@ func Load() (Config, error) {
 		return cfg, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is from findConfigFile, not user input
 	if err != nil {
 		return cfg, fmt.Errorf("reading config file: %w", err)
 	}
