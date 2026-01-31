@@ -7,9 +7,10 @@ import (
 	"os"
 	"strconv"
 
+	"golang.org/x/tools/go/analysis/singlechecker"
+
 	"github.com/mickamy/pointless/analyzer"
 	"github.com/mickamy/pointless/config"
-	"golang.org/x/tools/go/analysis/singlechecker"
 )
 
 func main() {
@@ -23,17 +24,19 @@ func main() {
 	if cfg.Threshold > 0 {
 		// Check if -threshold flag is explicitly set
 		thresholdSet := false
+
 		for _, arg := range os.Args[1:] {
 			if arg == "-threshold" || (len(arg) > 10 && arg[:11] == "-threshold=") {
 				thresholdSet = true
+
 				break
 			}
 		}
+
 		if !thresholdSet {
 			// Inject the config value as a flag (insert after program name, before other args)
 			newArgs := make([]string, 0, len(os.Args)+1)
-			newArgs = append(newArgs, os.Args[0])
-			newArgs = append(newArgs, "-threshold="+strconv.Itoa(cfg.Threshold))
+			newArgs = append(newArgs, os.Args[0], "-threshold="+strconv.Itoa(cfg.Threshold))
 			newArgs = append(newArgs, os.Args[1:]...)
 			os.Args = newArgs
 		}
@@ -46,7 +49,7 @@ func main() {
 }
 
 func init() {
-	// Add version flag
+	// Add version flag.
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pointless: suggests using value types instead of pointers for small structs\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: pointless [flags] [packages]\n\n")
@@ -54,7 +57,7 @@ func init() {
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nConfiguration:\n")
 		fmt.Fprintf(os.Stderr, "  Create .pointless.yaml in your project root:\n")
-		fmt.Fprintf(os.Stderr, "    threshold: 128  # bytes\n")
+		fmt.Fprintf(os.Stderr, "    threshold: 1024  # bytes\n")
 		fmt.Fprintf(os.Stderr, "    exclude:\n")
 		fmt.Fprintf(os.Stderr, "      - \"*_test.go\"\n")
 		fmt.Fprintf(os.Stderr, "      - \"vendor/**\"\n")

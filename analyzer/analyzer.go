@@ -3,7 +3,6 @@
 package analyzer
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -28,10 +27,10 @@ var Analyzer = &analysis.Analyzer{
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 }
 
-// threshold can be configured via flags
+// threshold can be configured via flags.
 var threshold int
 
-// excludePatterns holds file patterns to exclude from analysis
+// excludePatterns holds file patterns to exclude from analysis.
 var (
 	excludePatterns []string
 	excludeMu       sync.RWMutex
@@ -49,7 +48,10 @@ func init() {
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
-	ispct := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	ispct, ok := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	if !ok {
+		return nil, nil
+	}
 
 	// Build set of excluded files
 	excludedFiles := make(map[string]bool)
@@ -111,7 +113,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 }
 
 // checkFuncDecl checks function return types and method receivers.
-func checkFuncDecl(pass *analysis.Pass, fn *ast.FuncDecl, nilReturns map[*ast.FuncDecl]bool, receiverMutations map[*ast.FuncDecl]bool) {
+func checkFuncDecl(pass *analysis.Pass, fn *ast.FuncDecl, nilReturns, receiverMutations map[*ast.FuncDecl]bool) {
 	// Check method receiver
 	if fn.Recv != nil && len(fn.Recv.List) > 0 {
 		checkMethodReceiver(pass, fn, receiverMutations)
@@ -253,10 +255,12 @@ func checkGenDecl(pass *analysis.Pass, decl *ast.GenDecl, nilUsages map[token.Po
 			if obj := pass.TypesInfo.Defs[name]; obj != nil {
 				if nilUsages[obj.Pos()] {
 					hasNilUsage = true
+
 					break
 				}
 			}
 		}
+
 		if hasNilUsage {
 			continue
 		}
@@ -355,9 +359,11 @@ func findNilReturns(inspect *inspector.Inspector) map[*ast.FuncDecl]bool {
 			if currentFunc == nil {
 				return
 			}
+
 			for _, expr := range node.Results {
 				if isNil(expr) {
 					result[currentFunc] = true
+
 					return
 				}
 			}
@@ -384,6 +390,7 @@ func findReceiverMutations(pass *analysis.Pass, inspect *inspector.Inspector) ma
 		case *ast.FuncDecl:
 			currentFunc = node
 			receiverObj = nil
+
 			if node.Recv != nil && len(node.Recv.List) > 0 {
 				recv := node.Recv.List[0]
 				if len(recv.Names) > 0 {
@@ -394,9 +401,11 @@ func findReceiverMutations(pass *analysis.Pass, inspect *inspector.Inspector) ma
 			if currentFunc == nil || receiverObj == nil {
 				return
 			}
+
 			for _, lhs := range node.Lhs {
 				if refersToReceiver(pass, lhs, receiverObj) {
 					result[currentFunc] = true
+
 					return
 				}
 			}
@@ -404,6 +413,7 @@ func findReceiverMutations(pass *analysis.Pass, inspect *inspector.Inspector) ma
 			if currentFunc == nil || receiverObj == nil {
 				return
 			}
+
 			if refersToReceiver(pass, node.X, receiverObj) {
 				result[currentFunc] = true
 			}
@@ -427,6 +437,7 @@ func refersToReceiver(pass *analysis.Pass, expr ast.Expr, receiverObj types.Obje
 	case *ast.StarExpr:
 		return refersToReceiver(pass, e.X, receiverObj)
 	}
+
 	return false
 }
 
@@ -442,68 +453,78 @@ func findNilUsages(inspect *inspector.Inspector) map[token.Pos]bool {
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
 		switch node := n.(type) {
 		case *ast.BinaryExpr:
-			// Check for slice[i] == nil or slice[i] != nil
-			if node.Op == token.EQL || node.Op == token.NEQ {
-				if isNil(node.Y) {
-					if idx, ok := node.X.(*ast.IndexExpr); ok {
-						if ident, ok := idx.X.(*ast.Ident); ok {
-							if ident.Obj != nil {
-								result[ident.Obj.Pos()] = true
-							}
-						}
-					}
-				}
-				if isNil(node.X) {
-					if idx, ok := node.Y.(*ast.IndexExpr); ok {
-						if ident, ok := idx.X.(*ast.Ident); ok {
-							if ident.Obj != nil {
-								result[ident.Obj.Pos()] = true
-							}
-						}
-					}
-				}
-			}
+			checkBinaryExprForNil(node, result)
 		case *ast.AssignStmt:
-			// Check for slice[i] = nil
-			for i, lhs := range node.Lhs {
-				if idx, ok := lhs.(*ast.IndexExpr); ok {
-					if i < len(node.Rhs) && isNil(node.Rhs[i]) {
-						if ident, ok := idx.X.(*ast.Ident); ok {
-							if ident.Obj != nil {
-								result[ident.Obj.Pos()] = true
-							}
-						}
-					}
-				}
-			}
+			checkAssignStmtForNil(node, result)
 		}
 	})
 
 	return result
 }
 
+func checkBinaryExprForNil(node *ast.BinaryExpr, result map[token.Pos]bool) {
+	// Check for slice[i] == nil or slice[i] != nil
+	if node.Op != token.EQL && node.Op != token.NEQ {
+		return
+	}
+
+	checkIndexExprForNil(node.X, node.Y, result)
+	checkIndexExprForNil(node.Y, node.X, result)
+}
+
+func checkIndexExprForNil(indexSide, nilSide ast.Expr, result map[token.Pos]bool) {
+	if !isNil(nilSide) {
+		return
+	}
+
+	idx, ok := indexSide.(*ast.IndexExpr)
+	if !ok {
+		return
+	}
+
+	ident, ok := idx.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+
+	if ident.Obj != nil {
+		result[ident.Obj.Pos()] = true
+	}
+}
+
+func checkAssignStmtForNil(node *ast.AssignStmt, result map[token.Pos]bool) {
+	// Check for slice[i] = nil
+	for i, lhs := range node.Lhs {
+		idx, ok := lhs.(*ast.IndexExpr)
+		if !ok {
+			continue
+		}
+
+		if i >= len(node.Rhs) || !isNil(node.Rhs[i]) {
+			continue
+		}
+
+		ident, ok := idx.X.(*ast.Ident)
+		if !ok {
+			continue
+		}
+
+		if ident.Obj != nil {
+			result[ident.Obj.Pos()] = true
+		}
+	}
+}
+
 // isNil checks if an expression is the nil identifier.
 func isNil(expr ast.Expr) bool {
 	ident, ok := expr.(*ast.Ident)
+
 	return ok && ident.Name == "nil"
 }
 
 // sizeOf calculates the size of a type in bytes.
 func sizeOf(pass *analysis.Pass, t types.Type) int64 {
-	sizes := types.SizesFor("gc", "amd64")
-	if sizes == nil {
-		// Fallback: assume 64-bit
-		sizes = &types.StdSizes{WordSize: 8, MaxAlign: 8}
-	}
-	return sizes.Sizeof(t)
-}
-
-// formatBytes formats a byte count for display.
-func formatBytes(bytes int64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d bytes", bytes)
-	}
-	return fmt.Sprintf("%d bytes (%.1f KB)", bytes, float64(bytes)/1024)
+	return pass.TypesSizes.Sizeof(t)
 }
 
 // shouldExclude checks if a file path matches any exclude pattern.
@@ -518,6 +539,7 @@ func shouldExclude(path string, patterns []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -537,6 +559,7 @@ func buildNolintMap(pass *analysis.Pass) map[int]bool {
 					text = strings.TrimPrefix(text, "/*")
 					text = strings.TrimSuffix(text, "*/")
 				}
+
 				text = strings.TrimSpace(text)
 
 				if isNolintComment(text) {
@@ -562,6 +585,7 @@ func isNolintComment(text string) bool {
 			// Blanket nolint
 			return true
 		}
+
 		if rest[0] == ':' {
 			linters := strings.TrimPrefix(rest, ":")
 			for _, l := range strings.Split(linters, ",") {

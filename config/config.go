@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -27,17 +28,21 @@ func Load() (Config, error) {
 	cfg := DefaultConfig()
 
 	path, err := findConfigFile()
-	if err != nil || path == "" {
+	if err != nil {
+		return cfg, fmt.Errorf("finding config file: %w", err)
+	}
+
+	if path == "" {
 		return cfg, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, err
+		return cfg, fmt.Errorf("reading config file: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, err
+		return cfg, fmt.Errorf("parsing config file: %w", err)
 	}
 
 	return cfg, nil
@@ -47,7 +52,7 @@ func Load() (Config, error) {
 func findConfigFile() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("getting working directory: %w", err)
 	}
 
 	for {
@@ -66,6 +71,7 @@ func findConfigFile() (string, error) {
 		if parent == dir {
 			break
 		}
+
 		dir = parent
 	}
 
@@ -83,5 +89,6 @@ func (c Config) ShouldExclude(path string) bool {
 			return true
 		}
 	}
+
 	return false
 }
