@@ -1,4 +1,4 @@
-APP_NAME = injector
+APP_NAME = pointless
 BUILD_DIR = bin
 
 .PHONY: all build install uninstall clean test lint
